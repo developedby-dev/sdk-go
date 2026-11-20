@@ -4,7 +4,7 @@
 package bydev
 
 // SpecVersion은 이 SDK가 따르는 동작 명세 판이다.
-const SpecVersion = "1.1.1"
+const SpecVersion = "1.2.0"
 
 // DeviceCodeGrantType은 RFC 8628 디바이스 코드 grant_type이다.
 const DeviceCodeGrantType = "urn:ietf:params:oauth:grant-type:device_code"
@@ -221,7 +221,7 @@ var RouteReleaseSession = Route{Method: "DELETE", Path: "/v1/sessions/{sid}"}
 var RouteRevokeToken = Route{Method: "POST", Path: "/v1/oauth/revoke"}
 
 // 규칙 (sdks/spec/rules.json).
-const RuleSpecVersion = "1.1.1"
+const RuleSpecVersion = "1.2.0"
 const RuleApi = "v1"
 const RuleUserAgentPattern = "^bydev-(typescript|dotnet|swift|kotlin|python|go|rust|c)/[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?( .+)?$"
 const RuleHttpTimeoutSec = 30
@@ -237,6 +237,8 @@ const RuleJwksUnknownKidRefetchMinIntervalSec = 60
 const RuleFingerprintAlgorithm = "SHA-256"
 const RuleFingerprintSalt = "bydev-device-v1"
 const RuleFingerprintEncoding = "hex-lower"
+const RuleFingerprintSourceReadAttempts = 3
+const RuleFingerprintSourceReadRetryDelayMs = 300
 const RuleStorageService = "dev.developedby.sdk"
 const RuleStorageRecordVersion = 1
 const RuleWebhookSignatureVersion = "v1"

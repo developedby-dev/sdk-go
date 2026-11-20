@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // 명세 2절 표 — 운영체제별 기본 구현. 원본 지문 · 토큰을 명령 줄 인자로 넘기지 않는다 — 비밀은 표준 입력으로만(다른 프로세스의 ps에 보이지 않게).
@@ -26,10 +27,15 @@ type osDeps struct {
 	writeFile func(path, content string) error
 	remove    func(path string) error
 	newID     func() string
+	sleep     func(time.Duration) // 지문 출처를 다시 읽기 전 기다림(명세 10절) — 시험은 기다리지 않는다
+	// machineGUID는 Windows 레지스트리 API로 MachineGuid를 읽는다(명령을 띄우지 않는다). 없으면(nil) reg 명령만 쓴다
+	machineGUID func() (string, error)
 }
 
 var systemDeps = osDeps{
-	goos: runtime.GOOS,
+	goos:        runtime.GOOS,
+	sleep:       time.Sleep,
+	machineGUID: registryMachineGUID,
 	exec: func(ctx context.Context, name string, args []string, stdin string) (string, error) {
 		cmd := exec.CommandContext(ctx, name, args...)
 		if stdin != "" {
@@ -154,9 +160,21 @@ var (
 	linuxMachineIDSources = []string{"/etc/machine-id", "/var/lib/dbus/machine-id"}
 )
 
+// Read는 운영체제 식별자를 읽는다. 실패하거나 빈 값이면 설치 ID로 물러나기 전에 RuleFingerprintSourceReadAttempts번까지 읽는다(명세 10절 —
+// 일시적인 실패 하나로 같은 PC가 다른 기기로 등록되지 않게).
 func (f fingerprintSource) Read(ctx context.Context) (string, error) {
-	if value := strings.TrimSpace(readMachineID(ctx, f.deps)); value != "" {
-		return value, nil
+	for attempt := 0; attempt < max(RuleFingerprintSourceReadAttempts, 1); attempt++ {
+		if attempt > 0 {
+			if f.deps.sleep != nil {
+				f.deps.sleep(RuleFingerprintSourceReadRetryDelayMs * time.Millisecond)
+			}
+			if ctx.Err() != nil {
+				break
+			}
+		}
+		if value := strings.TrimSpace(readMachineID(ctx, f.deps)); value != "" {
+			return value, nil
+		}
 	}
 	if f.installIDFile == "" {
 		return "", nil
@@ -178,6 +196,11 @@ func (f fingerprintSource) Read(ctx context.Context) (string, error) {
 func readMachineID(ctx context.Context, deps osDeps) string {
 	switch deps.goos {
 	case "windows":
+		if deps.machineGUID != nil { // 레지스트리 API가 먼저 — 프로세스를 띄우지 않아 빠르고 실패할 곳이 적다
+			if value, err := deps.machineGUID(); err == nil && strings.TrimSpace(value) != "" {
+				return value
+			}
+		}
 		out, err := deps.exec(ctx, "reg", []string{"query", `HKLM\SOFTWARE\Microsoft\Cryptography`, "/v", "MachineGuid"}, "")
 		if m := machineGUIDPattern.FindStringSubmatch(out); err == nil && m != nil {
 			return m[1]

@@ -136,6 +136,8 @@ type Session struct {
 	heartbeat func()
 	offline   func()
 	fallback  string
+	// fingerprint는 처음 계산한 지문 해시 — 한 실행 동안 다시 쓴다(명세 10절). 획득마다 출처를 다시 읽으면 일시적인 읽기 실패 하나로 다른 기기가 된다
+	fingerprint string
 }
 
 func newSession(c *Client, device DeviceInfo, app *AppInfo) *Session {
@@ -339,19 +341,29 @@ func (s *Session) live(run int) bool {
 }
 
 func (s *Session) fingerprintHash(ctx context.Context) string {
+	s.mu.Lock()
+	cached := s.fingerprint
+	s.mu.Unlock()
+	if cached != "" {
+		return cached
+	}
 	source, err := s.ports.Fingerprint.Read(ctx)
 	value := strings.TrimSpace(source)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.fingerprint != "" { // 다른 고루틴이 먼저 정했다
+		return s.fingerprint
+	}
 	if err != nil || value == "" {
-		s.mu.Lock()
 		if s.fallback == "" {
 			s.fallback = s.ports.Random.UUID()
 			s.ports.Logger.Warn("기기 지문 출처를 읽지 못해 이번 실행 동안만 쓰는 ID를 쓴다 — 출처 포트를 준다(명세 10절)")
 		}
 		value = s.fallback
-		s.mu.Unlock()
 	}
 	sum := sha256.Sum256([]byte(value + RuleFingerprintSalt))
-	return hex.EncodeToString(sum[:])
+	s.fingerprint = hex.EncodeToString(sum[:])
+	return s.fingerprint
 }
 
 // acquire — 8.2절. 일시적 실패의 재시도는 같은 키.

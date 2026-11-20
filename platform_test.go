@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 type call struct {
@@ -29,8 +30,9 @@ func (e exitError) Stderr() string { return e.stderr }
 type fake struct {
 	calls   []call
 	files   map[string]string
-	answers map[string]any // "명령 첫인자" 또는 "명령" → string | error
+	answers map[string]any // "명령 첫인자" 또는 "명령" → string | error | []any(차례로 — 마지막 값을 되풀이)
 	tools   map[string]bool
+	slept   []time.Duration
 }
 
 func newFake(answers map[string]any) *fake {
@@ -45,6 +47,12 @@ func (f *fake) deps(goos string) osDeps {
 			answer, ok := f.answers[name+" "+args[0]]
 			if !ok {
 				answer = f.answers[name]
+			}
+			if seq, ok := answer.([]any); ok && len(seq) > 0 {
+				answer = seq[0]
+				if len(seq) > 1 {
+					f.answers[name] = seq[1:]
+				}
 			}
 			switch a := answer.(type) {
 			case error:
@@ -67,6 +75,7 @@ func (f *fake) deps(goos string) osDeps {
 		writeFile: func(path, content string) error { f.files[path] = content; return nil },
 		remove:    func(path string) error { delete(f.files, path); return nil },
 		newID:     func() string { return "00000000-0000-4000-8000-00000000abcd" },
+		sleep:     func(d time.Duration) { f.slept = append(f.slept, d) },
 	}
 }
 
@@ -110,6 +119,45 @@ func TestFingerprintInstallIDFallback(t *testing.T) {
 	// 파일 자리도 없으면 ""(SDK가 수명 동안의 난수 ID로 물러난다)
 	if none, _ := (fingerprintSource{deps: f.deps("darwin")}).Read(ctx); none != "" {
 		t.Fatalf("%q", none)
+	}
+}
+
+// 명세 10절 — 운영체제 식별자 읽기가 한 번 실패해도 설치 ID로 물러나지 않고 다시 읽는다(2026-11-20 Windows: 한 번의 실패로 다른 기기가 됐다)
+func TestFingerprintRetriesBeforeInstallID(t *testing.T) {
+	ctx := context.Background()
+	guid := "\r\n    MachineGuid    REG_SZ    3f1e9a2b-1111-2222-3333-444455556666\r\n"
+	f := newFake(map[string]any{"reg": []any{errors.New("잠시 실패"), "", guid}})
+	src := fingerprintSource{installIDFile: "/app/install-id", deps: f.deps("windows")}
+	if got, _ := src.Read(ctx); got != "3f1e9a2b-1111-2222-3333-444455556666" {
+		t.Fatalf("세 번째에 읽어야 한다: %q", got)
+	}
+	if _, made := f.files["/app/install-id"]; made || len(f.calls) != 3 {
+		t.Fatalf("설치 ID를 만들지 않는다 — 호출 %d번, 파일 %v", len(f.calls), f.files)
+	}
+	want := []time.Duration{RuleFingerprintSourceReadRetryDelayMs * time.Millisecond, RuleFingerprintSourceReadRetryDelayMs * time.Millisecond}
+	if len(f.slept) != 2 || f.slept[0] != want[0] || f.slept[1] != want[1] {
+		t.Fatalf("사이마다 %v 기다린다: %v", want[0], f.slept)
+	}
+
+	all := newFake(map[string]any{"reg": errors.New("계속 실패")})
+	src = fingerprintSource{installIDFile: "/app/install-id", deps: all.deps("windows")}
+	if got, _ := src.Read(ctx); got != "00000000-0000-4000-8000-00000000abcd" || len(all.calls) != RuleFingerprintSourceReadAttempts {
+		t.Fatalf("다 실패하면 설치 ID — %q, 호출 %d번", got, len(all.calls))
+	}
+}
+
+// Windows는 레지스트리 API로 먼저 읽는다 — 명령을 띄우지 않는다. API가 실패하면 reg 명령으로.
+func TestFingerprintWindowsRegistryAPIFirst(t *testing.T) {
+	ctx := context.Background()
+	f := newFake(map[string]any{"reg": "    MachineGuid    REG_SZ    from-reg-command\r\n"})
+	deps := f.deps("windows")
+	deps.machineGUID = func() (string, error) { return "from-registry-api", nil }
+	if got, _ := (fingerprintSource{deps: deps}).Read(ctx); got != "from-registry-api" || len(f.calls) != 0 {
+		t.Fatalf("API 값 · 명령 없이 — %q, 호출 %d번", got, len(f.calls))
+	}
+	deps.machineGUID = func() (string, error) { return "", errors.New("접근 거부") }
+	if got, _ := (fingerprintSource{deps: deps}).Read(ctx); got != "from-reg-command" {
+		t.Fatalf("API가 실패하면 reg 명령 — %q", got)
 	}
 }
 

@@ -21,24 +21,25 @@ import (
 )
 
 var (
-	mu       sync.Mutex
-	now      int64 // Unix 밀리초
-	timers   []*timer
-	seq      int
-	running  int
-	waiters  = map[int]<-chan struct{}{}
-	waiterID int
-	pending  = map[string]*exchange{}
-	randoms  []float64
-	uuids    int
-	httpSeq  int
-	record   *bydev.CredentialRecord
-	failLoad bool
-	failSave bool
-	failClr  bool
-	client   *bydev.Client
-	login    *bydev.LoginAttempt
-	outMu    sync.Mutex
+	mu        sync.Mutex
+	now       int64 // Unix 밀리초
+	timers    []*timer
+	seq       int
+	running   int
+	waiters   = map[int]<-chan struct{}{}
+	waiterID  int
+	pending   = map[string]*exchange{}
+	randoms   []float64
+	uuids     int
+	httpSeq   int
+	record    *bydev.CredentialRecord
+	failLoad  bool
+	failSave  bool
+	failClr   bool
+	failPrint bool // set fingerprint.fail — 지문 출처를 읽지 못한다
+	client    *bydev.Client
+	login     *bydev.LoginAttempt
+	outMu     sync.Mutex
 )
 
 type timer struct {
@@ -210,8 +211,12 @@ func (store) Clear(context.Context) error {
 
 type fingerprint struct{ value *string }
 
+// Read는 설정의 출처 값 — null이거나 set fingerprint.fail이 참이면 읽지 못한다(명세 10절 · 하네스 규약 2절)
 func (f fingerprint) Read(context.Context) (string, error) {
-	if f.value == nil {
+	mu.Lock()
+	failing := failPrint
+	mu.Unlock()
+	if f.value == nil || failing {
 		return "", nil
 	}
 	return *f.value, nil
@@ -583,6 +588,8 @@ func main() {
 				failSave = value
 			case "storage.failClear":
 				failClr = value
+			case "fingerprint.fail":
+				failPrint = value
 			}
 			mu.Unlock()
 			settle()
