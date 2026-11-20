@@ -4,9 +4,17 @@ package bydev
 
 import (
 	"errors"
+	"os/exec"
 	"syscall"
 	"unsafe"
 )
+
+// hideConsole은 명령(powershell · reg)을 콘솔 창 없이 띄운다(CREATE_NO_WINDOW). GUI 앱(-H windowsgui)이 띄운 콘솔 명령은 창이 깜빡이고,
+// 콘솔을 만들지 못하면 0xC0000142(DLL 초기화 실패)로 끝난다 — 2026-11-20 Windows 확인에서 reg.exe의 약 5%(명세 2절).
+func hideConsole(cmd *exec.Cmd) {
+	const createNoWindow = 0x08000000
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+}
 
 // registryMachineGUID는 HKLM\SOFTWARE\Microsoft\Cryptography의 MachineGuid를 레지스트리 API로 읽는다 — reg 명령을 띄우지 않는다(명세 10절).
 // 32비트 프로세스도 64비트 보기를 읽는다(KEY_WOW64_64KEY) — 같은 PC에서 같은 값이 나오게.

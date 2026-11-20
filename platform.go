@@ -38,6 +38,7 @@ var systemDeps = osDeps{
 	machineGUID: registryMachineGUID,
 	exec: func(ctx context.Context, name string, args []string, stdin string) (string, error) {
 		cmd := exec.CommandContext(ctx, name, args...)
+		hideConsole(cmd)
 		if stdin != "" {
 			cmd.Stdin = strings.NewReader(stdin)
 		}
