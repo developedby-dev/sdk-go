@@ -23,7 +23,7 @@ type Config struct {
 	Ports Ports
 }
 
-// Client는 bydev 라이선스 API 클라이언트다. 서버 응답 하나의 참/거짓으로 기능을 열지 않는다 — Session().State()와 검증된 토큰의 클레임을 쓴다.
+// Client는 데브 라이선스 API 클라이언트다. 서버 응답 하나의 참/거짓으로 기능을 열지 않는다 — Session().State()와 검증된 토큰의 클레임을 쓴다.
 type Client struct {
 	config   Config
 	ports    Ports

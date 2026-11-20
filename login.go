@@ -50,7 +50,7 @@ func newLoginAttempt(code *deviceCode, c *Client) *LoginAttempt {
 		done:                    make(chan struct{}),
 	}
 	l.ExpiresAt = iso(l.expiresAt)
-	l.schedulePoll()
+	l.schedulePoll(0)
 	return l
 }
 
@@ -90,12 +90,15 @@ func (l *LoginAttempt) isSettled() bool {
 	return l.settled
 }
 
-// schedulePoll — 폴링 지터는 위로만(interval보다 이르면 SLOW_DOWN이다).
-func (l *LoginAttempt) schedulePoll() {
+// schedulePoll — 폴링 지터는 위로만(interval보다 이르면 SLOW_DOWN이다). 429면 retryAfterSec(0이면 없음)보다 이르게 묻지 않는다(명세 5절).
+func (l *LoginAttempt) schedulePoll(retryAfterSec int) {
 	l.mu.Lock()
 	interval := l.interval
 	l.mu.Unlock()
 	delay := jittered(l.ports, time.Duration(interval)*time.Second, RuleLoginPollJitterMin, RuleLoginPollJitterMax)
+	if floor := time.Duration(retryAfterSec) * time.Second; floor > delay {
+		delay = floor
+	}
 	if l.ports.Clock.Now().Add(delay).After(l.expiresAt) {
 		l.finish(nil, &Error{Code: CodeExpiredToken, Message: "로그인 코드가 만료됐다 — 처음부터 다시"})
 		return
@@ -143,8 +146,14 @@ func (l *LoginAttempt) poll() {
 	}
 	e := toError(err)
 	switch {
-	case e.Code == CodeAuthorizationPending || e.Transient():
-		l.schedulePoll()
+	case e.Code == CodeAuthorizationPending:
+		l.schedulePoll(0)
+	case e.Transient():
+		retry := 0
+		if e.Code == CodeRateLimited || e.HTTPStatus == 429 {
+			retry = e.RetryAfterSec
+		}
+		l.schedulePoll(retry)
 	case e.Code == CodeSlowDown:
 		l.mu.Lock()
 		if e.RetryAfterSec > 0 {
@@ -153,7 +162,7 @@ func (l *LoginAttempt) poll() {
 			l.interval += RuleLoginSlowDownIncrementSec
 		}
 		l.mu.Unlock()
-		l.schedulePoll()
+		l.schedulePoll(0)
 	default:
 		l.finish(nil, e)
 	}
