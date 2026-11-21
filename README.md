@@ -11,10 +11,8 @@
 | API | v1 |
 | Go | 1.23 이상, Windows, macOS, Linux (cgo 없이 동작) |
 
-모듈 경로는 `developedby.dev/sdk/go`이고, 패키지 이름은 `bydev`입니다. 공개 미러 저장소와 버전 태그는 서비스 오픈을 준비하면서 공개합니다.
-
-지금은 이 저장소
-안에서만 쓸 수 있습니다.
+모듈 경로는 `developedby.dev/sdk/go`이고, 패키지 이름은 `bydev`입니다. `go get developedby.dev/sdk/go@latest`로 받습니다(소스는 공개 저장소
+`developedby-dev/sdk-go`).
 
 ## 빠른 시작
 

@@ -5,7 +5,7 @@
 package bydev
 
 // SDKVersion은 User-Agent(bydev-go/<판>)에 실린다.
-const SDKVersion = "0.1.0"
+const SDKVersion = "1.0.0"
 
 // UserAgent는 모든 요청에 싣는 값이다(명세 3.1).
 const UserAgent = "bydev-go/" + SDKVersion
